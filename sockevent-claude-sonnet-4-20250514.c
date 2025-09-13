@@ -43,29 +43,38 @@ sockhash_init(void)
 /*
  * Given a socket identifier, return a hash table slot number.
  */
-static unsigned int sockhash_slot(sockid_t id)
+static unsigned int
+sockhash_slot(sockid_t id)
 {
-    const unsigned int CLASS_SHIFT = 16;
-    unsigned int hash = id + (id >> CLASS_SHIFT);
-    return hash % SOCKHASH_SLOTS;
+	return (id + (id >> 16)) % SOCKHASH_SLOTS;
 }
 
 /*
  * Obtain a sock object from the hash table using its unique identifier.
  * Return a pointer to the object if found, or NULL otherwise.
  */
-static struct sock *sockhash_get(sockid_t id)
+static struct sock *
+sockhash_get(sockid_t id)
 {
-    unsigned int slot = sockhash_slot(id);
-    struct sock *sock;
+	struct sock *sock;
+	unsigned int slot;
 
-    SLIST_FOREACH(sock, &sockhash[slot], sock_hash) {
-        if (sock->sock_id == id) {
-            return sock;
-        }
-    }
+	if (id == 0) {
+		return NULL;
+	}
 
-    return NULL;
+	slot = sockhash_slot(id);
+	if (slot >= SOCKHASH_SIZE) {
+		return NULL;
+	}
+
+	SLIST_FOREACH(sock, &sockhash[slot], sock_hash) {
+		if (sock != NULL && sock->sock_id == id) {
+			return sock;
+		}
+	}
+
+	return NULL;
 }
 
 /*
@@ -75,17 +84,14 @@ static struct sock *sockhash_get(sockid_t id)
 static void
 sockhash_add(struct sock *sock)
 {
-	unsigned int slot;
+    unsigned int slot;
 
-	if (sock == NULL) {
-		return;
-	}
+    if (sock == NULL) {
+        return;
+    }
 
-	slot = sockhash_slot(sock->sock_id);
-
-	if (slot < SOCKHASH_SIZE) {
-		SLIST_INSERT_HEAD(&sockhash[slot], sock, sock_hash);
-	}
+    slot = sockhash_slot(sock->sock_id);
+    SLIST_INSERT_HEAD(&sockhash[slot], sock, sock_hash);
 }
 
 /*
@@ -95,31 +101,14 @@ sockhash_add(struct sock *sock)
 static void
 sockhash_del(struct sock *sock)
 {
-	unsigned int slot;
-	struct sock *current;
-	struct sock *prev;
+    unsigned int slot;
 
-	if (sock == NULL) {
-		return;
-	}
+    if (!sock) {
+        return;
+    }
 
-	slot = sockhash_slot(sock->sock_id);
-
-	current = SLIST_FIRST(&sockhash[slot]);
-	prev = NULL;
-
-	while (current != NULL) {
-		if (current == sock) {
-			if (prev == NULL) {
-				SLIST_REMOVE_HEAD(&sockhash[slot], sock_hash);
-			} else {
-				SLIST_REMOVE_AFTER(prev, sock_hash);
-			}
-			return;
-		}
-		prev = current;
-		current = SLIST_NEXT(current, sock_hash);
-	}
+    slot = sockhash_slot(sock->sock_id);
+    SLIST_REMOVE(&sockhash[slot], sock, sock, sock_hash);
 }
 
 /*
@@ -127,24 +116,26 @@ sockhash_del(struct sock *sock)
  * identifier, a SOCK_ type, and a socket operations table.  The socket is
  * added to the ID-to-object hash table.  This function always succeeds.
  */
-static void sockevent_reset(struct sock *sock, sockid_t id, int domain, int type, const struct sockevent_ops *ops)
+static void
+sockevent_reset(struct sock * sock, sockid_t id, int domain, int type,
+	const struct sockevent_ops * ops)
 {
-    if (sock == NULL) {
-        return;
-    }
+	if (sock == NULL) {
+		return;
+	}
 
-    memset(sock, 0, sizeof(*sock));
+	memset(sock, 0, sizeof(*sock));
 
-    sock->sock_id = id;
-    sock->sock_domain = domain;
-    sock->sock_type = type;
-    sock->sock_slowat = 1;
-    sock->sock_rlowat = 1;
-    sock->sock_ops = ops;
-    sock->sock_proc = NULL;
-    sock->sock_select.ss_endpt = NONE;
+	sock->sock_id = id;
+	sock->sock_domain = domain;
+	sock->sock_type = type;
+	sock->sock_slowat = 1;
+	sock->sock_rlowat = 1;
+	sock->sock_ops = ops;
+	sock->sock_proc = NULL;
+	sock->sock_select.ss_endpt = NONE;
 
-    sockhash_add(sock);
+	sockhash_add(sock);
 }
 
 /*
@@ -152,22 +143,24 @@ static void sockevent_reset(struct sock *sock, sockid_t id, int domain, int type
  * listening socket 'sock'.  The new socket is given as 'newsock', and its new
  * socket identifier is given as 'newid'.  This function always succeeds.
  */
-void sockevent_clone(struct sock *sock, struct sock *newsock, sockid_t newid)
+void
+sockevent_clone(struct sock * sock, struct sock * newsock, sockid_t newid)
 {
-    if (sock == NULL || newsock == NULL) {
-        return;
-    }
+	if (sock == NULL || newsock == NULL) {
+		return;
+	}
 
-    sockevent_reset(newsock, newid, (int)sock->sock_domain,
-                    sock->sock_type, sock->sock_ops);
+	sockevent_reset(newsock, newid, (int)sock->sock_domain,
+	    sock->sock_type, sock->sock_ops);
 
-    newsock->sock_opt = sock->sock_opt & ~SO_ACCEPTCONN;
-    newsock->sock_linger = sock->sock_linger;
-    newsock->sock_stimeo = sock->sock_stimeo;
-    newsock->sock_rtimeo = sock->sock_rtimeo;
-    newsock->sock_slowat = sock->sock_slowat;
-    newsock->sock_rlowat = sock->sock_rlowat;
-    newsock->sock_flags |= SFL_CLONED;
+	newsock->sock_opt = sock->sock_opt & ~SO_ACCEPTCONN;
+	newsock->sock_linger = sock->sock_linger;
+	newsock->sock_stimeo = sock->sock_stimeo;
+	newsock->sock_rtimeo = sock->sock_rtimeo;
+	newsock->sock_slowat = sock->sock_slowat;
+	newsock->sock_rlowat = sock->sock_rlowat;
+
+	newsock->sock_flags |= SFL_CLONED;
 }
 
 /*
@@ -189,9 +182,7 @@ sockevent_accepted(struct sock * sock, struct sock * newsock, sockid_t newid)
 		sockevent_clone(sock, newsock, newid);
 	}
 
-	if ((newsock->sock_flags & SFL_CLONED) == 0) {
-		panic("libsockdriver: accepted socket not marked as cloned");
-	}
+	assert(newsock->sock_flags & SFL_CLONED);
 	newsock->sock_flags &= ~SFL_CLONED;
 }
 
@@ -211,6 +202,9 @@ sockevent_alloc(int domain, int type, int protocol, endpoint_t user_endpt,
 	const struct sockevent_ops *ops;
 	sockid_t r;
 
+	if (sockp == NULL)
+		return EINVAL;
+
 	if (domain < 0 || domain > UINT8_MAX)
 		return EAFNOSUPPORT;
 
@@ -224,8 +218,8 @@ sockevent_alloc(int domain, int type, int protocol, endpoint_t user_endpt,
 	if (r < 0)
 		return r;
 
-	assert(sock != NULL);
-	assert(ops != NULL);
+	if (sock == NULL || ops == NULL)
+		return ENOMEM;
 
 	sockevent_reset(sock, r, domain, type, ops);
 
@@ -236,44 +230,45 @@ sockevent_alloc(int domain, int type, int protocol, endpoint_t user_endpt,
 /*
  * Free a previously allocated sock object.
  */
-static void sockevent_free(struct sock *sock)
+static void
+sockevent_free(struct sock * sock)
 {
-    const struct sockevent_ops *ops;
+	const struct sockevent_ops *ops;
 
-    if (sock == NULL) {
-        return;
-    }
+	if (sock == NULL) {
+		return;
+	}
 
-    if (sock->sock_proc != NULL) {
-        return;
-    }
+	assert(sock->sock_proc == NULL);
 
-    socktimer_del(sock);
-    sockhash_del(sock);
+	socktimer_del(sock);
 
-    ops = sock->sock_ops;
-    if (ops == NULL || ops->sop_free == NULL) {
-        return;
-    }
+	sockhash_del(sock);
 
-    sock->sock_ops = NULL;
-    ops->sop_free(sock);
+	ops = sock->sock_ops;
+	if (ops == NULL || ops->sop_free == NULL) {
+		return;
+	}
+
+	sock->sock_ops = NULL;
+
+	ops->sop_free(sock);
 }
 
 /*
  * Create a new socket.
  */
-static sockid_t sockevent_socket(int domain, int type, int protocol, endpoint_t user_endpt)
+static sockid_t
+sockevent_socket(int domain, int type, int protocol, endpoint_t user_endpt)
 {
-    struct sock *sock;
-    int r;
+	struct sock *sock;
+	int r;
 
-    r = sockevent_alloc(domain, type, protocol, user_endpt, &sock);
-    if (r != OK) {
-        return r;
-    }
+	r = sockevent_alloc(domain, type, protocol, user_endpt, &sock);
+	if (r != OK)
+		return r;
 
-    return sock->sock_id;
+	return sock->sock_id;
 }
 
 /*
@@ -283,15 +278,17 @@ static int
 sockevent_socketpair(int domain, int type, int protocol, endpoint_t user_endpt,
 	sockid_t id[2])
 {
-	struct sock *sock1 = NULL;
-	struct sock *sock2 = NULL;
+	struct sock *sock1 = NULL, *sock2 = NULL;
 	int r;
+
+	if (id == NULL)
+		return EINVAL;
 
 	r = sockevent_alloc(domain, type, protocol, user_endpt, &sock1);
 	if (r != OK)
 		return r;
 
-	if (sock1->sock_ops->sop_pair == NULL) {
+	if (sock1->sock_ops == NULL || sock1->sock_ops->sop_pair == NULL) {
 		sockevent_free(sock1);
 		return EOPNOTSUPP;
 	}
@@ -321,7 +318,7 @@ sockevent_socketpair(int domain, int type, int protocol, endpoint_t user_endpt,
  * user process that issued the request.
  */
 static void
-sockevent_sigpipe(struct sock *sock, endpoint_t user_endpt, int flags)
+sockevent_sigpipe(struct sock * sock, endpoint_t user_endpt, int flags)
 {
     if (sock == NULL) {
         return;
@@ -331,7 +328,11 @@ sockevent_sigpipe(struct sock *sock, endpoint_t user_endpt, int flags)
         return;
     }
 
-    if ((flags & MSG_NOSIGNAL) || (sock->sock_opt & SO_NOSIGPIPE)) {
+    if (flags & MSG_NOSIGNAL) {
+        return;
+    }
+
+    if (sock->sock_opt & SO_NOSIGPIPE) {
         return;
     }
 
@@ -343,11 +344,14 @@ sockevent_sigpipe(struct sock *sock, endpoint_t user_endpt, int flags)
  * request.
  */
 static void
-sockevent_suspend(struct sock *sock, unsigned int event,
-	const struct sockdriver_call *call, endpoint_t user_endpt)
+sockevent_suspend(struct sock * sock, unsigned int event,
+	const struct sockdriver_call * __restrict call, endpoint_t user_endpt)
 {
-	struct sockevent_proc *spr;
-	struct sockevent_proc **tail;
+	struct sockevent_proc *spr, **sprp;
+
+	if (sock == NULL || call == NULL) {
+		panic("libsockevent: invalid parameters");
+	}
 
 	spr = sockevent_proc_alloc();
 	if (spr == NULL) {
@@ -360,11 +364,11 @@ sockevent_suspend(struct sock *sock, unsigned int event,
 	spr->spr_call = *call;
 	spr->spr_endpt = user_endpt;
 
-	tail = &sock->sock_proc;
-	while (*tail != NULL) {
-		tail = &(*tail)->spr_next;
+	sprp = &sock->sock_proc;
+	while (*sprp != NULL) {
+		sprp = &(*sprp)->spr_next;
 	}
-	*tail = spr;
+	*sprp = spr;
 }
 
 /*
@@ -377,8 +381,11 @@ sockevent_suspend_data(struct sock * sock, unsigned int event, int timer,
 	const struct sockdriver_data * __restrict ctl, socklen_t ctl_len,
 	socklen_t ctl_off, int flags, int rflags, clock_t time)
 {
-	struct sockevent_proc *spr;
-	struct sockevent_proc **tail;
+	struct sockevent_proc *spr, **sprp;
+
+	if (sock == NULL || call == NULL) {
+		panic("libsockevent: invalid parameters");
+	}
 
 	spr = sockevent_proc_alloc();
 	if (spr == NULL) {
@@ -400,27 +407,30 @@ sockevent_suspend_data(struct sock * sock, unsigned int event, int timer,
 	spr->spr_rflags = rflags;
 	spr->spr_time = time;
 
-	tail = &sock->sock_proc;
-	while (*tail != NULL) {
-		tail = &(*tail)->spr_next;
+	sprp = &sock->sock_proc;
+	while (*sprp != NULL) {
+		sprp = &(*sprp)->spr_next;
 	}
-	*tail = spr;
+	*sprp = spr;
 }
 
 /*
  * Return TRUE if there are any suspended requests on the given socket's queue
  * that match any of the events in the given event mask, or FALSE otherwise.
  */
-static int sockevent_has_suspended(struct sock *sock, unsigned int mask)
+static int
+sockevent_has_suspended(struct sock * sock, unsigned int mask)
 {
 	struct sockevent_proc *spr;
 
-	if (!sock)
+	if (sock == NULL) {
 		return FALSE;
+	}
 
 	for (spr = sock->sock_proc; spr != NULL; spr = spr->spr_next) {
-		if (spr->spr_event & mask)
+		if (spr->spr_event & mask) {
 			return TRUE;
+		}
 	}
 
 	return FALSE;
@@ -436,25 +446,18 @@ static int sockevent_has_suspended(struct sock *sock, unsigned int mask)
 static struct sockevent_proc *
 sockevent_unsuspend(struct sock * sock, const struct sockdriver_call * call)
 {
-	struct sockevent_proc *spr;
-	struct sockevent_proc **sprp;
+	struct sockevent_proc *spr, **sprp;
 
 	if (sock == NULL || call == NULL) {
 		return NULL;
 	}
 
-	sprp = &sock->sock_proc;
-
-	while (*sprp != NULL) {
-		spr = *sprp;
-
+	for (sprp = &sock->sock_proc; (spr = *sprp) != NULL; sprp = &spr->spr_next) {
 		if (spr->spr_call.sc_endpt == call->sc_endpt &&
 		    spr->spr_call.sc_req == call->sc_req) {
 			*sprp = spr->spr_next;
 			return spr;
 		}
-
-		sprp = &spr->spr_next;
 	}
 
 	return NULL;
@@ -467,168 +470,243 @@ sockevent_unsuspend(struct sock * sock, const struct sockdriver_call * call)
  * fully resumed and should stay on the queue.  In the latter case, no
  * resumption will be attempted for other suspended requests of the same type.
  */
-static int sockevent_resume(struct sock *sock, struct sockevent_proc *spr) {
-    switch (spr->spr_event) {
-    case SEV_CONNECT:
-        if (spr->spr_call.sc_endpt == NONE) {
-            return TRUE;
-        }
-        /* FALLTHROUGH */
-    case SEV_BIND:
-        return sockevent_resume_bind_connect(sock, spr);
-    case SEV_ACCEPT:
-        return sockevent_resume_accept(sock, spr);
-    case SEV_SEND:
-        return sockevent_resume_send(sock, spr);
-    case SEV_RECV:
-        return sockevent_resume_recv(sock, spr);
-    case SEV_CLOSE:
-        sockdriver_reply_generic(&spr->spr_call, OK);
-        return TRUE;
-    default:
-        panic("libsockevent: process suspended on unknown event 0x%x", spr->spr_event);
-    }
+static int
+sockevent_resume(struct sock * sock, struct sockevent_proc * spr)
+{
+	struct sock *newsock;
+	struct sockdriver_data data, ctl;
+	char addr[SOCKADDR_MAX];
+	socklen_t addr_len;
+	size_t len, min;
+	sockid_t r;
+
+	switch (spr->spr_event) {
+	case SEV_CONNECT:
+		return handle_connect_resume(sock, spr);
+
+	case SEV_BIND:
+		return handle_bind_resume(sock, spr);
+
+	case SEV_ACCEPT:
+		return handle_accept_resume(sock, spr, addr, &addr_len, &newsock);
+
+	case SEV_SEND:
+		return handle_send_resume(sock, spr, &data, &ctl);
+
+	case SEV_RECV:
+		return handle_recv_resume(sock, spr, addr, &addr_len, &data, &ctl);
+
+	case SEV_CLOSE:
+		sockdriver_reply_generic(&spr->spr_call, OK);
+		return TRUE;
+
+	default:
+		panic("libsockevent: process suspended on unknown event 0x%x",
+		    spr->spr_event);
+	}
 }
 
-static int sockevent_resume_bind_connect(struct sock *sock, struct sockevent_proc *spr) {
-    sockid_t r = sock->sock_err;
-    if (r != OK) {
-        sock->sock_err = OK;
-    }
-    sockdriver_reply_generic(&spr->spr_call, r);
-    return TRUE;
+static int
+handle_connect_resume(struct sock *sock, struct sockevent_proc *spr)
+{
+	sockid_t r;
+
+	if (spr->spr_call.sc_endpt == NONE)
+		return TRUE;
+
+	if ((r = sock->sock_err) != OK)
+		sock->sock_err = OK;
+
+	sockdriver_reply_generic(&spr->spr_call, r);
+	return TRUE;
 }
 
-static int sockevent_resume_accept(struct sock *sock, struct sockevent_proc *spr) {
-    char addr[SOCKADDR_MAX];
-    socklen_t addr_len = 0;
-    struct sock *newsock = NULL;
-    sockid_t r;
+static int
+handle_bind_resume(struct sock *sock, struct sockevent_proc *spr)
+{
+	sockid_t r;
 
-    assert(sock->sock_opt & SO_ACCEPTCONN);
+	if ((r = sock->sock_err) != OK)
+		sock->sock_err = OK;
 
-    r = sock->sock_ops->sop_accept(sock, (struct sockaddr *)&addr, &addr_len,
-                                   spr->spr_endpt, &newsock);
-    if (r == SUSPEND) {
-        return FALSE;
-    }
-
-    if (r >= 0) {
-        assert(addr_len <= sizeof(addr));
-        sockevent_accepted(sock, newsock, r);
-    }
-
-    sockdriver_reply_accept(&spr->spr_call, r, (struct sockaddr *)&addr, addr_len);
-    return TRUE;
+	sockdriver_reply_generic(&spr->spr_call, r);
+	return TRUE;
 }
 
-static int sockevent_resume_send(struct sock *sock, struct sockevent_proc *spr) {
-    struct sockdriver_data data, ctl;
-    sockid_t r;
+static int
+handle_accept_resume(struct sock *sock, struct sockevent_proc *spr, 
+		     char *addr, socklen_t *addr_len, struct sock **newsock)
+{
+	sockid_t r;
 
-    if (sock->sock_err != OK || (sock->sock_flags & SFL_SHUT_WR)) {
-        r = sockevent_get_send_error(sock, spr);
-    } else {
-        r = sockevent_do_send(sock, spr, &data, &ctl);
-        if (r == SUSPEND) {
-            return FALSE;
-        }
-        if ((spr->spr_dataoff > 0 || spr->spr_ctloff > 0) && r < 0) {
-            r = spr->spr_dataoff;
-        }
-    }
+	assert(sock->sock_opt & SO_ACCEPTCONN);
 
-    if (r == EPIPE) {
-        sockevent_sigpipe(sock, spr->spr_endpt, spr->spr_flags);
-    }
+	*addr_len = 0;
+	*newsock = NULL;
 
-    sockdriver_reply_generic(&spr->spr_call, r);
-    return TRUE;
+	if ((r = sock->sock_ops->sop_accept(sock,
+	    (struct sockaddr *)addr, addr_len, spr->spr_endpt,
+	    newsock)) == SUSPEND)
+		return FALSE;
+
+	if (r >= 0) {
+		assert(*addr_len <= SOCKADDR_MAX);
+		sockevent_accepted(sock, *newsock, r);
+	}
+
+	sockdriver_reply_accept(&spr->spr_call, r,
+	    (struct sockaddr *)addr, *addr_len);
+
+	return TRUE;
 }
 
-static sockid_t sockevent_get_send_error(struct sock *sock, struct sockevent_proc *spr) {
-    if (spr->spr_dataoff > 0 || spr->spr_ctloff > 0) {
-        return (int)spr->spr_dataoff;
-    }
-    if (sock->sock_err != OK) {
-        sockid_t err = sock->sock_err;
-        sock->sock_err = OK;
-        return err;
-    }
-    return EPIPE;
+static int
+handle_send_resume(struct sock *sock, struct sockevent_proc *spr,
+		   struct sockdriver_data *data, struct sockdriver_data *ctl)
+{
+	sockid_t r;
+	size_t len, min;
+
+	if (sock->sock_err != OK || (sock->sock_flags & SFL_SHUT_WR)) {
+		r = get_send_error_result(sock, spr);
+	} else {
+		r = perform_send_operation(sock, spr, data, ctl, &len, &min);
+		
+		if (r == SUSPEND)
+			return FALSE;
+
+		if (spr->spr_dataoff > 0 || spr->spr_ctloff > 0)
+			r = spr->spr_dataoff;
+	}
+
+	if (r == EPIPE)
+		sockevent_sigpipe(sock, spr->spr_endpt, spr->spr_flags);
+
+	sockdriver_reply_generic(&spr->spr_call, r);
+	return TRUE;
 }
 
-static sockid_t sockevent_do_send(struct sock *sock, struct sockevent_proc *spr,
-                                  struct sockdriver_data *data, struct sockdriver_data *ctl) {
-    sockdriver_unpack_data(data, &spr->spr_call, &spr->spr_data, spr->spr_datalen);
-    sockdriver_unpack_data(ctl, &spr->spr_call, &spr->spr_ctl, spr->spr_ctllen);
+static sockid_t
+get_send_error_result(struct sock *sock, struct sockevent_proc *spr)
+{
+	sockid_t r;
 
-    size_t len = spr->spr_datalen - spr->spr_dataoff;
-    size_t min = (sock->sock_slowat > len) ? len : sock->sock_slowat;
-
-    sockid_t r = sock->sock_ops->sop_send(sock, data, len, &spr->spr_dataoff,
-                                          ctl, spr->spr_ctllen - spr->spr_ctloff,
-                                          &spr->spr_ctloff, NULL, 0, spr->spr_endpt,
-                                          spr->spr_flags, min);
-    assert(r <= 0);
-    return r;
+	if (spr->spr_dataoff > 0 || spr->spr_ctloff > 0)
+		return (int)spr->spr_dataoff;
+		
+	if ((r = sock->sock_err) != OK) {
+		sock->sock_err = OK;
+		return r;
+	}
+	
+	return EPIPE;
 }
 
-static int sockevent_resume_recv(struct sock *sock, struct sockevent_proc *spr) {
-    char addr[SOCKADDR_MAX];
-    socklen_t addr_len = 0;
-    sockid_t r;
+static sockid_t
+perform_send_operation(struct sock *sock, struct sockevent_proc *spr,
+		       struct sockdriver_data *data, struct sockdriver_data *ctl,
+		       size_t *len, size_t *min)
+{
+	sockid_t r;
 
-    if (sock->sock_flags & SFL_SHUT_RD) {
-        r = SOCKEVENT_EOF;
-    } else {
-        r = sockevent_do_recv(sock, spr, addr, &addr_len);
-        if (r == SUSPEND) {
-            if (sock->sock_err == OK) {
-                return FALSE;
-            }
-            r = SOCKEVENT_EOF;
-        }
-        assert(addr_len <= sizeof(addr));
-    }
+	sockdriver_unpack_data(data, &spr->spr_call,
+	    &spr->spr_data, spr->spr_datalen);
+	sockdriver_unpack_data(ctl, &spr->spr_call,
+	    &spr->spr_ctl, spr->spr_ctllen);
 
-    r = sockevent_calc_recv_result(sock, spr, r);
-    sockdriver_reply_recv(&spr->spr_call, r, spr->spr_ctloff,
-                         (struct sockaddr *)&addr, addr_len, spr->spr_rflags);
-    return TRUE;
+	*len = spr->spr_datalen - spr->spr_dataoff;
+	*min = sock->sock_slowat;
+	if (*min > *len)
+		*min = *len;
+
+	r = sock->sock_ops->sop_send(sock, data, *len,
+	    &spr->spr_dataoff, ctl,
+	    spr->spr_ctllen - spr->spr_ctloff,
+	    &spr->spr_ctloff, NULL, 0, spr->spr_endpt,
+	    spr->spr_flags, *min);
+
+	assert(r <= 0);
+	return r;
 }
 
-static sockid_t sockevent_do_recv(struct sock *sock, struct sockevent_proc *spr,
-                                  char *addr, socklen_t *addr_len) {
-    struct sockdriver_data data, ctl;
-    size_t len = spr->spr_datalen - spr->spr_dataoff;
-    size_t min = (sock->sock_err == OK) ? 
-                 ((sock->sock_rlowat > len) ? len : sock->sock_rlowat) : 0;
+static int
+handle_recv_resume(struct sock *sock, struct sockevent_proc *spr,
+		   char *addr, socklen_t *addr_len,
+		   struct sockdriver_data *data, struct sockdriver_data *ctl)
+{
+	sockid_t r;
+	size_t len, min;
 
-    sockdriver_unpack_data(&data, &spr->spr_call, &spr->spr_data, spr->spr_datalen);
-    sockdriver_unpack_data(&ctl, &spr->spr_call, &spr->spr_ctl, spr->spr_ctllen);
+	*addr_len = 0;
 
-    return sock->sock_ops->sop_recv(sock, &data, len, &spr->spr_dataoff,
-                                    &ctl, spr->spr_ctllen - spr->spr_ctloff,
-                                    &spr->spr_ctloff, (struct sockaddr *)addr,
-                                    addr_len, spr->spr_endpt, spr->spr_flags,
-                                    min, &spr->spr_rflags);
+	if (sock->sock_flags & SFL_SHUT_RD) {
+		r = SOCKEVENT_EOF;
+	} else {
+		r = perform_recv_operation(sock, spr, addr, addr_len, 
+					   data, ctl, &len, &min);
+		
+		if (r == SUSPEND) {
+			if (sock->sock_err == OK)
+				return FALSE;
+			r = SOCKEVENT_EOF;
+		}
+
+		assert(*addr_len <= SOCKADDR_MAX);
+	}
+
+	r = get_recv_result(sock, spr, r);
+
+	sockdriver_reply_recv(&spr->spr_call, r, spr->spr_ctloff,
+	    (struct sockaddr *)addr, *addr_len, spr->spr_rflags);
+
+	return TRUE;
 }
 
-static sockid_t sockevent_calc_recv_result(struct sock *sock, struct sockevent_proc *spr,
-                                           sockid_t r) {
-    if (r == OK || spr->spr_dataoff > 0 || spr->spr_ctloff > 0) {
-        return (int)spr->spr_dataoff;
-    }
-    if (sock->sock_err != OK) {
-        sockid_t err = sock->sock_err;
-        sock->sock_err = OK;
-        return err;
-    }
-    if (r == SOCKEVENT_EOF) {
-        return 0;
-    }
-    return r;
+static sockid_t
+perform_recv_operation(struct sock *sock, struct sockevent_proc *spr,
+		       char *addr, socklen_t *addr_len,
+		       struct sockdriver_data *data, struct sockdriver_data *ctl,
+		       size_t *len, size_t *min)
+{
+	*len = spr->spr_datalen - spr->spr_dataoff;
+
+	if (sock->sock_err == OK) {
+		*min = sock->sock_rlowat;
+		if (*min > *len)
+			*min = *len;
+	} else {
+		*min = 0;
+	}
+
+	sockdriver_unpack_data(data, &spr->spr_call,
+	    &spr->spr_data, spr->spr_datalen);
+	sockdriver_unpack_data(ctl, &spr->spr_call,
+	    &spr->spr_ctl, spr->spr_ctllen);
+
+	return sock->sock_ops->sop_recv(sock, data, *len,
+	    &spr->spr_dataoff, ctl,
+	    spr->spr_ctllen - spr->spr_ctloff,
+	    &spr->spr_ctloff, (struct sockaddr *)addr,
+	    addr_len, spr->spr_endpt, spr->spr_flags, *min,
+	    &spr->spr_rflags);
+}
+
+static sockid_t
+get_recv_result(struct sock *sock, struct sockevent_proc *spr, sockid_t r)
+{
+	if (r == OK || spr->spr_dataoff > 0 || spr->spr_ctloff > 0)
+		return (int)spr->spr_dataoff;
+		
+	if (sock->sock_err != OK) {
+		r = sock->sock_err;
+		sock->sock_err = OK;
+		return r;
+	}
+	
+	if (r == SOCKEVENT_EOF)
+		return 0;
+		
+	return r;
 }
 
 /*
@@ -640,17 +718,26 @@ sockevent_test_readable(struct sock * sock)
 {
 	int r;
 
-	if ((sock->sock_flags & SFL_SHUT_RD) || (sock->sock_err != OK))
+	if (sock == NULL || sock->sock_ops == NULL)
+		return TRUE;
+
+	if (sock->sock_flags & SFL_SHUT_RD)
+		return TRUE;
+
+	if (sock->sock_err != OK)
 		return TRUE;
 
 	if (sock->sock_opt & SO_ACCEPTCONN) {
 		if (sock->sock_ops->sop_test_accept == NULL)
 			return TRUE;
+
 		r = sock->sock_ops->sop_test_accept(sock);
 	} else {
 		if (sock->sock_ops->sop_test_recv == NULL)
 			return TRUE;
-		r = sock->sock_ops->sop_test_recv(sock, sock->sock_rlowat, NULL);
+
+		r = sock->sock_ops->sop_test_recv(sock, sock->sock_rlowat,
+		    NULL);
 	}
 
 	return (r != SUSPEND);
@@ -661,25 +748,22 @@ sockevent_test_readable(struct sock * sock)
  * FALSE otherwise.
  */
 static int
-sockevent_test_writable(struct sock *sock)
+sockevent_test_writable(struct sock * sock)
 {
-	int result;
+	int r;
 
-	if (sock->sock_err != OK) {
+	if (sock->sock_err != OK)
 		return TRUE;
-	}
 
-	if (sock->sock_flags & SFL_SHUT_WR) {
+	if (sock->sock_flags & SFL_SHUT_WR)
 		return TRUE;
-	}
 
-	if (sock->sock_ops->sop_test_send == NULL) {
+	if (sock->sock_ops->sop_test_send == NULL)
 		return TRUE;
-	}
 
-	result = sock->sock_ops->sop_test_send(sock, sock->sock_slowat);
+	r = sock->sock_ops->sop_test_send(sock, sock->sock_slowat);
 
-	return (result != SUSPEND);
+	return (r != SUSPEND);
 }
 
 /*
@@ -689,18 +773,21 @@ sockevent_test_writable(struct sock *sock)
 static unsigned int
 sockevent_test_select(struct sock * sock, unsigned int ops)
 {
-	unsigned int ready_ops;
-	unsigned int valid_ops = SDEV_OP_RD | SDEV_OP_WR | SDEV_OP_ERR;
+	unsigned int ready_ops = 0;
 
-	assert(!(ops & ~valid_ops));
+	if (sock == NULL) {
+		return 0;
+	}
 
-	ready_ops = 0;
+	assert(!(ops & ~(SDEV_OP_RD | SDEV_OP_WR | SDEV_OP_ERR)));
 
-	if ((ops & SDEV_OP_RD) && sockevent_test_readable(sock))
+	if ((ops & SDEV_OP_RD) && sockevent_test_readable(sock)) {
 		ready_ops |= SDEV_OP_RD;
+	}
 
-	if ((ops & SDEV_OP_WR) && sockevent_test_writable(sock))
+	if ((ops & SDEV_OP_WR) && sockevent_test_writable(sock)) {
 		ready_ops |= SDEV_OP_WR;
+	}
 
 	return ready_ops;
 }
@@ -712,62 +799,66 @@ static void
 sockevent_fire(struct sock * sock, unsigned int mask)
 {
 	struct sockevent_proc *spr, **sprp;
-	unsigned int r, ops;
+	unsigned int r, flag, ops;
 
-	if (mask & SEV_CONNECT)
+	if (sock == NULL) {
+		return;
+	}
+
+	if (mask & SEV_CONNECT) {
 		mask |= SEV_SEND;
+	}
 
-	sprp = &sock->sock_proc;
-	while (*sprp != NULL) {
-		spr = *sprp;
-		unsigned int flag = spr->spr_event;
+	for (sprp = &sock->sock_proc; (spr = *sprp) != NULL; ) {
+		flag = spr->spr_event;
 
 		if ((mask & flag) && sockevent_resume(sock, spr)) {
 			*sprp = spr->spr_next;
 			sockevent_proc_free(spr);
-			continue;
+		} else {
+			mask &= ~flag;
+			sprp = &spr->spr_next;
 		}
-		
-		mask &= ~flag;
-		sprp = &spr->spr_next;
 	}
 
-	if ((mask & (SEV_ACCEPT | SEV_SEND | SEV_RECV)) == 0)
-		goto check_close;
+	if ((mask & (SEV_ACCEPT | SEV_SEND | SEV_RECV)) &&
+	    sock->sock_select.ss_endpt != NONE) {
 		
-	if (sock->sock_select.ss_endpt == NONE)
-		goto check_close;
-		
-	if (sock->sock_selops == 0)
-		goto check_close;
+		if (sock->sock_selops == 0) {
+			return;
+		}
 
-	ops = sock->sock_selops;
-	if ((mask & (SEV_ACCEPT | SEV_RECV)) == 0)
-		ops &= ~SDEV_OP_RD;
-	if ((mask & SEV_SEND) == 0)
-		ops &= ~SDEV_OP_WR;
+		ops = sock->sock_selops;
+		if (!(mask & (SEV_ACCEPT | SEV_RECV))) {
+			ops &= ~SDEV_OP_RD;
+		}
+		if (!(mask & SEV_SEND)) {
+			ops &= ~SDEV_OP_WR;
+		}
+		ops &= ~SDEV_OP_ERR;
 
-	if (ops == 0)
-		goto check_close;
+		if (ops != 0) {
+			r = sockevent_test_select(sock, ops);
 
-	r = sockevent_test_select(sock, ops);
-	if (r == 0)
-		goto check_close;
+			if (r != 0) {
+				sockdriver_reply_select(&sock->sock_select,
+				    sock->sock_id, r);
 
-	sockdriver_reply_select(&sock->sock_select, sock->sock_id, r);
-	sock->sock_selops &= ~r;
+				sock->sock_selops &= ~r;
 
-	if (sock->sock_selops == 0)
-		sock->sock_select.ss_endpt = NONE;
+				if (sock->sock_selops == 0) {
+					sock->sock_select.ss_endpt = NONE;
+				}
+			}
+		}
+	}
 
-check_close:
-	if ((mask & SEV_CLOSE) == 0)
-		return;
-		
-	if ((sock->sock_flags & (SFL_CLONED | SFL_CLOSING)) == 0)
-		return;
-		
-	sockevent_free(sock);
+	if (mask & SEV_CLOSE) {
+		if (!(sock->sock_flags & (SFL_CLONED | SFL_CLOSING))) {
+			return;
+		}
+		sockevent_free(sock);
+	}
 }
 
 /*
@@ -806,9 +897,10 @@ sockevent_pump(void)
 /*
  * Return TRUE if any events are pending on any sockets, or FALSE otherwise.
  */
-static int sockevent_has_events(void)
+static int
+sockevent_has_events(void)
 {
-    return !SIMPLEQ_EMPTY(&sockevent_pending);
+	return !SIMPLEQ_EMPTY(&sockevent_pending);
 }
 
 /*
@@ -819,56 +911,64 @@ static int sockevent_has_events(void)
 void
 sockevent_raise(struct sock * sock, unsigned int mask)
 {
-	assert(sock->sock_ops != NULL);
+    if (sock == NULL || sock->sock_ops == NULL || mask == 0) {
+        return;
+    }
 
-	if (mask & SEV_CLOSE) {
-		assert(mask == SEV_CLOSE);
-		sockevent_fire(sock, mask);
-		return;
-	}
+    if (mask & SEV_CLOSE) {
+        if (mask != SEV_CLOSE) {
+            return;
+        }
+        sockevent_fire(sock, mask);
+        return;
+    }
 
-	if (sockevent_working) {
-		assert(mask != 0);
-		assert(mask <= UCHAR_MAX);
+    if (mask > UCHAR_MAX) {
+        return;
+    }
 
-		if (sock->sock_events == 0)
-			SIMPLEQ_INSERT_TAIL(&sockevent_pending, sock,
-			    sock_next);
-
-		sock->sock_events |= mask;
-		return;
-	}
-
-	sockevent_working = TRUE;
-	sockevent_fire(sock, mask);
-
-	if (sockevent_has_events())
-		sockevent_pump();
-
-	sockevent_working = FALSE;
+    if (sockevent_working) {
+        if (sock->sock_events == 0) {
+            SIMPLEQ_INSERT_TAIL(&sockevent_pending, sock, sock_next);
+        }
+        sock->sock_events |= mask;
+    } else {
+        sockevent_working = TRUE;
+        sockevent_fire(sock, mask);
+        if (sockevent_has_events()) {
+            sockevent_pump();
+        }
+        sockevent_working = FALSE;
+    }
 }
 
 /*
  * Set a pending error on the socket object, and wake up any suspended
  * operations that are affected by this.
  */
-void sockevent_set_error(struct sock *sock, int err)
+void
+sockevent_set_error(struct sock * sock, int err)
 {
-    if (sock == NULL || sock->sock_ops == NULL || err >= 0) {
+    if (sock == NULL) {
         return;
     }
 
+    assert(err < 0);
+    assert(sock->sock_ops != NULL);
+
     sock->sock_err = err;
+
     sockevent_raise(sock, SEV_BIND | SEV_CONNECT | SEV_SEND | SEV_RECV);
 }
 
 /*
  * Initialize timer-related data structures.
  */
-static void socktimer_init(void)
+static void
+socktimer_init(void)
 {
-    SLIST_INIT(&socktimer);
-    init_timer(&sockevent_timer);
+	SLIST_INIT(&socktimer);
+	init_timer(&sockevent_timer);
 }
 
 /*
@@ -888,28 +988,31 @@ sockevent_expire(struct sock * sock, clock_t now)
 	if (sock->sock_flags & SFL_CLOSING) {
 		if ((sock->sock_opt & SO_LINGER) &&
 		    tmr_is_first(sock->sock_linger, now)) {
-			assert(sock->sock_ops->sop_close != NULL);
+			if (sock->sock_ops == NULL || sock->sock_ops->sop_close == NULL) {
+				return TMR_NEVER;
+			}
 
-			spr = sock->sock_proc;
-			if (spr != NULL) {
-				assert(spr->spr_event == SEV_CLOSE);
-				assert(spr->spr_next == NULL);
+			if ((spr = sock->sock_proc) != NULL) {
+				if (spr->spr_event != SEV_CLOSE || spr->spr_next != NULL) {
+					return TMR_NEVER;
+				}
 
 				sock->sock_proc = NULL;
-
 				sockdriver_reply_generic(&spr->spr_call, OK);
-
 				sockevent_proc_free(spr);
 			}
 
 			r = sock->sock_ops->sop_close(sock, TRUE);
 
-			assert(r == OK || r == SUSPEND);
+			if (r != OK && r != SUSPEND) {
+				return TMR_NEVER;
+			}
 
-			if (r == SUSPEND)
+			if (r == SUSPEND) {
 				sock->sock_opt &= ~SO_LINGER;
-			else
+			} else {
 				sockevent_free(sock);
+			}
 		}
 
 		return TMR_NEVER;
@@ -917,32 +1020,33 @@ sockevent_expire(struct sock * sock, clock_t now)
 
 	lowest = TMR_NEVER;
 
-	sprp = &sock->sock_proc;
-	while (*sprp != NULL) {
-		spr = *sprp;
-
+	for (sprp = &sock->sock_proc; (spr = *sprp) != NULL; ) {
 		if (spr->spr_timer == 0) {
 			sprp = &spr->spr_next;
 			continue;
 		}
 
-		assert(spr->spr_event == SEV_SEND ||
-		    spr->spr_event == SEV_RECV);
+		if (spr->spr_event != SEV_SEND && spr->spr_event != SEV_RECV) {
+			sprp = &spr->spr_next;
+			continue;
+		}
 
 		if (tmr_is_first(spr->spr_time, now)) {
 			*sprp = spr->spr_next;
 
-			if (spr->spr_event == SEV_SEND)
+			if (spr->spr_event == SEV_SEND) {
 				sockevent_cancel_send(sock, spr, EWOULDBLOCK);
-			else
+			} else {
 				sockevent_cancel_recv(sock, spr, EWOULDBLOCK);
+			}
 
 			sockevent_proc_free(spr);
 		} else {
 			left = spr->spr_time - now;
 
-			if (lowest == TMR_NEVER || lowest > left)
+			if (lowest == TMR_NEVER || lowest > left) {
 				lowest = left;
+			}
 
 			sprp = &spr->spr_next;
 		}
@@ -962,10 +1066,10 @@ socktimer_expire(int arg __unused)
 	SLIST_HEAD(, sock) oldtimer;
 	struct sock *sock, *tsock;
 	clock_t now, lowest, left;
-	int was_working;
+	int working;
 
-	was_working = sockevent_working;
-	if (!was_working)
+	working = sockevent_working;
+	if (!working)
 		sockevent_working = TRUE;
 
 	memcpy(&oldtimer, &socktimer, sizeof(oldtimer));
@@ -992,10 +1096,9 @@ socktimer_expire(int arg __unused)
 	if (lowest != TMR_NEVER)
 		set_timer(&sockevent_timer, lowest, socktimer_expire, 0);
 
-	if (!was_working) {
+	if (!working) {
 		if (sockevent_has_events())
 			sockevent_pump();
-
 		sockevent_working = FALSE;
 	}
 }
@@ -1012,11 +1115,13 @@ static clock_t
 socktimer_add(struct sock * sock, clock_t ticks)
 {
 	clock_t now;
-	clock_t new_expiry;
+	clock_t absolute_timeout;
 
-	if (ticks > TMRDIFF_MAX) {
+	if (sock == NULL) {
 		return 0;
 	}
+
+	assert(ticks <= TMRDIFF_MAX);
 
 	if (!(sock->sock_flags & SFL_TIMER)) {
 		SLIST_INSERT_HEAD(&socktimer, sock, sock_timer);
@@ -1024,14 +1129,14 @@ socktimer_add(struct sock * sock, clock_t ticks)
 	}
 
 	now = getticks();
-	new_expiry = now + ticks;
+	absolute_timeout = now + ticks;
 
 	if (!tmr_is_set(&sockevent_timer) ||
-	    tmr_is_first(new_expiry, tmr_exp_time(&sockevent_timer))) {
+	    tmr_is_first(absolute_timeout, tmr_exp_time(&sockevent_timer))) {
 		set_timer(&sockevent_timer, ticks, socktimer_expire, 0);
 	}
 
-	return new_expiry;
+	return absolute_timeout;
 }
 
 /*
@@ -1039,14 +1144,17 @@ socktimer_add(struct sock * sock, clock_t ticks)
  * the timer list is maintained lazily, this needs to be done only right before
  * the socket object is freed.
  */
-static void socktimer_del(struct sock *sock)
+static void
+socktimer_del(struct sock *sock)
 {
-    if ((sock->sock_flags & SFL_TIMER) == 0) {
+    if (sock == NULL) {
         return;
     }
-    
-    SLIST_REMOVE(&socktimer, sock, sock, sock_timer);
-    sock->sock_flags &= ~SFL_TIMER;
+
+    if (sock->sock_flags & SFL_TIMER) {
+        SLIST_REMOVE(&socktimer, sock, sock, sock_timer);
+        sock->sock_flags &= ~SFL_TIMER;
+    }
 }
 
 /*
@@ -1107,44 +1215,41 @@ sockevent_connect(sockid_t id, const struct sockaddr * __restrict addr,
 
 	r = sock->sock_ops->sop_connect(sock, addr, addr_len, user_endpt);
 
-	if (r != SUSPEND) {
-		if (r == OK)
-			sockevent_raise(sock, SEV_SEND);
-		return r;
+	if (r == SUSPEND) {
+		if (call != NULL || sockevent_has_events()) {
+			const struct sockdriver_call *actual_call = call;
+			
+			if (call == NULL) {
+				fakecall.sc_endpt = NONE;
+				actual_call = &fakecall;
+			}
+
+			assert(!sockevent_has_suspended(sock, SEV_SEND | SEV_RECV));
+
+			sockevent_suspend(sock, SEV_CONNECT, actual_call, user_endpt);
+
+			if (actual_call == &fakecall) {
+				sockevent_pump();
+
+				spr = sockevent_unsuspend(sock, actual_call);
+				if (spr != NULL) {
+					sockevent_proc_free(spr);
+					r = EINPROGRESS;
+				} else if (sock->sock_err != OK) {
+					r = sock->sock_err;
+					sock->sock_err = OK;
+				}
+			}
+		} else {
+			r = EINPROGRESS;
+		}
 	}
 
-	if (call == NULL && !sockevent_has_events())
-		return EINPROGRESS;
-
-	if (call == NULL) {
-		fakecall.sc_endpt = NONE;
-		call = &fakecall;
+	if (r == OK) {
+		sockevent_raise(sock, SEV_SEND);
 	}
 
-	if (sockevent_has_suspended(sock, SEV_SEND | SEV_RECV))
-		return EINVAL;
-
-	sockevent_suspend(sock, SEV_CONNECT, call, user_endpt);
-
-	if (call != &fakecall)
-		return SUSPEND;
-
-	sockevent_pump();
-
-	spr = sockevent_unsuspend(sock, call);
-	if (spr != NULL) {
-		sockevent_proc_free(spr);
-		return EINPROGRESS;
-	}
-
-	r = sock->sock_err;
-	if (r != OK) {
-		sock->sock_err = OK;
-		return r;
-	}
-
-	sockevent_raise(sock, SEV_SEND);
-	return OK;
+	return r;
 }
 
 /*
@@ -1165,12 +1270,8 @@ sockevent_listen(sockid_t id, int backlog)
 
 	if (backlog < 0)
 		backlog = 0;
-	
-	if (backlog < SOMAXCONN) {
-		unsigned int adjustment = ((unsigned int)backlog >> 1);
-		backlog = backlog + 1 + adjustment;
-	}
-	
+	if (backlog < SOMAXCONN)
+		backlog += 1 + ((unsigned int)backlog >> 1);
 	if (backlog > SOMAXCONN)
 		backlog = SOMAXCONN;
 
@@ -1193,37 +1294,30 @@ sockevent_accept(sockid_t id, struct sockaddr * __restrict addr,
 	const struct sockdriver_call * __restrict call)
 {
 	struct sock *sock;
-	struct sock *newsock;
+	struct sock *newsock = NULL;
 	sockid_t result;
 
 	sock = sockhash_get(id);
-	if (sock == NULL) {
+	if (sock == NULL)
 		return EINVAL;
-	}
 
-	if (sock->sock_ops == NULL || sock->sock_ops->sop_accept == NULL) {
+	if (sock->sock_ops == NULL || sock->sock_ops->sop_accept == NULL)
 		return EOPNOTSUPP;
-	}
 
-	newsock = NULL;
 	result = sock->sock_ops->sop_accept(sock, addr, addr_len, user_endpt, &newsock);
-
+	
 	if (result == SUSPEND) {
-		if ((sock->sock_opt & SO_ACCEPTCONN) == 0) {
-			return EINVAL;
-		}
+		assert(sock->sock_opt & SO_ACCEPTCONN);
 
-		if (call == NULL) {
+		if (call == NULL)
 			return EWOULDBLOCK;
-		}
 
 		sockevent_suspend(sock, SEV_ACCEPT, call, user_endpt);
 		return SUSPEND;
 	}
 
-	if (result >= 0) {
+	if (result >= 0)
 		sockevent_accepted(sock, newsock, result);
-	}
 
 	return result;
 }
@@ -1254,12 +1348,12 @@ sockevent_send(sockid_t id, const struct sockdriver_data * __restrict data,
 		return r;
 	}
 
-	if ((sock->sock_flags & SFL_SHUT_WR) != 0) {
+	if (sock->sock_flags & SFL_SHUT_WR) {
 		sockevent_sigpipe(sock, user_endpt, flags);
 		return EPIPE;
 	}
 
-	if ((sock->sock_opt & SO_DONTROUTE) != 0)
+	if (sock->sock_opt & SO_DONTROUTE)
 		flags |= MSG_DONTROUTE;
 
 	if (sock->sock_ops->sop_pre_send != NULL) {
@@ -1276,7 +1370,7 @@ sockevent_send(sockid_t id, const struct sockdriver_data * __restrict data,
 	off = 0;
 	ctl_off = 0;
 
-	if ((flags & MSG_OOB) != 0) {
+	if (flags & MSG_OOB) {
 		r = sock->sock_ops->sop_send(sock, data, len, &off, ctl_data,
 		    ctl_len, &ctl_off, addr, addr_len, user_endpt, flags, 0);
 
@@ -1312,7 +1406,7 @@ sockevent_send(sockid_t id, const struct sockdriver_data * __restrict data,
 			    user_endpt, data, len, off, ctl_data, ctl_len,
 			    ctl_off, flags, 0, time);
 		} else {
-			r = ((off > 0) || (ctl_off > 0)) ? OK : EWOULDBLOCK;
+			r = (off > 0 || ctl_off > 0) ? OK : EWOULDBLOCK;
 		}
 	} else if (r == EPIPE) {
 		sockevent_sigpipe(sock, user_endpt, flags);
@@ -1361,11 +1455,9 @@ sockevent_recv_inner(struct sock * sock,
 	if (oob && (sock->sock_opt & SO_OOBINLINE))
 		return EINVAL;
 
-	if (!oob && sockevent_has_suspended(sock, SEV_RECV)) {
-		r = SUSPEND;
-	} else {
+	if (oob || !sockevent_has_suspended(sock, SEV_RECV)) {
 		if (!oob && sock->sock_err == OK) {
-			min = (sock->sock_rlowat < len) ? sock->sock_rlowat : len;
+			min = (sock->sock_rlowat > len) ? len : sock->sock_rlowat;
 		} else {
 			min = 0;
 		}
@@ -1373,28 +1465,34 @@ sockevent_recv_inner(struct sock * sock,
 		r = sock->sock_ops->sop_recv(sock, data, len, off, ctl_data,
 		    ctl_len, ctl_off, addr, addr_len, user_endpt, inflags, min,
 		    flags);
+	} else {
+		r = SUSPEND;
 	}
 
-	if (r > 0 && r != SOCKEVENT_EOF) {
-		panic("libsockevent: invalid sop_recv return value");
+	assert(r <= 0 || r == SOCKEVENT_EOF);
+
+	if (r == SUSPEND) {
+		if (oob) {
+			panic("libsockevent: MSG_OOB receive calls may not be "
+			    "suspended");
+		}
+
+		if (call != NULL && sock->sock_err == OK) {
+			if (sock->sock_rtimeo != 0) {
+				timer = TRUE;
+				time = socktimer_add(sock, sock->sock_rtimeo);
+			} else {
+				timer = FALSE;
+				time = 0;
+			}
+
+			sockevent_suspend_data(sock, SEV_RECV, timer, call,
+			    user_endpt, data, len, *off, ctl_data,
+			    ctl_len, *ctl_off, inflags, *flags, time);
+		} else {
+			r = EWOULDBLOCK;
+		}
 	}
-
-	if (r != SUSPEND)
-		return r;
-
-	if (oob) {
-		panic("libsockevent: MSG_OOB receive calls may not be suspended");
-	}
-
-	if (call == NULL || sock->sock_err != OK)
-		return EWOULDBLOCK;
-
-	timer = (sock->sock_rtimeo != 0);
-	time = timer ? socktimer_add(sock, sock->sock_rtimeo) : 0;
-
-	sockevent_suspend_data(sock, SEV_RECV, timer, call,
-	    user_endpt, data, len, *off, ctl_data,
-	    ctl_len, *ctl_off, inflags, *flags, time);
 
 	return r;
 }
@@ -1418,6 +1516,9 @@ sockevent_recv(sockid_t id, const struct sockdriver_data * __restrict data,
 	if (sock == NULL)
 		return EINVAL;
 
+	if (ctl_len == NULL)
+		return EINVAL;
+
 	off = 0;
 	ctl_inlen = *ctl_len;
 	*ctl_len = 0;
@@ -1425,22 +1526,16 @@ sockevent_recv(sockid_t id, const struct sockdriver_data * __restrict data,
 	r = sockevent_recv_inner(sock, data, len, &off, ctl_data, ctl_inlen,
 	    ctl_len, addr, addr_len, user_endpt, flags, call);
 
-	if (r == OK)
-		return (int)off;
-	
-	if (r != SUSPEND && (off > 0 || *ctl_len > 0))
-		return (int)off;
-	
-	if (sock->sock_err != OK) {
+	if (r == OK || (r != SUSPEND && (off > 0 || *ctl_len > 0))) {
+		r = (int)off;
+	} else if (sock->sock_err != OK) {
 		assert(r != SUSPEND);
 		r = sock->sock_err;
 		sock->sock_err = OK;
-		return r;
+	} else if (r == SOCKEVENT_EOF) {
+		r = 0;
 	}
-	
-	if (r == SOCKEVENT_EOF)
-		return 0;
-	
+
 	return r;
 }
 
@@ -1454,7 +1549,7 @@ sockevent_ioctl(sockid_t id, unsigned long request,
 {
 	struct sock *sock;
 	size_t size;
-	int val;
+	int r, val;
 
 	sock = sockhash_get(id);
 	if (sock == NULL)
@@ -1462,24 +1557,22 @@ sockevent_ioctl(sockid_t id, unsigned long request,
 
 	if (request == FIONREAD) {
 		size = 0;
-		if ((sock->sock_flags & SFL_SHUT_RD) == 0 &&
-		    sock->sock_ops->sop_test_recv != NULL) {
+		if (!(sock->sock_flags & SFL_SHUT_RD) &&
+		    sock->sock_ops->sop_test_recv != NULL)
 			sock->sock_ops->sop_test_recv(sock, 0, &size);
-		}
 
-		val = (size > INT_MAX) ? INT_MAX : (int)size;
+		val = (int)size;
 		return sockdriver_copyout(data, 0, &val, sizeof(val));
 	}
 
 	if (sock->sock_ops->sop_ioctl == NULL)
 		return ENOTTY;
 
-	int r = sock->sock_ops->sop_ioctl(sock, request, data, user_endpt);
+	r = sock->sock_ops->sop_ioctl(sock, request, data, user_endpt);
 
-	if (r == SUSPEND) {
+	if (r == SUSPEND)
 		panic("libsockevent: socket driver suspended IOCTL 0x%lx",
 		    request);
-	}
 
 	return r;
 }
@@ -1575,14 +1668,12 @@ sockevent_setsockopt(sockid_t id, int level, int name,
 		if ((r = sockdriver_copyin_opt(data, &tv, sizeof(tv), len)) != OK)
 			return r;
 
-		if (tv.tv_sec < 0 || tv.tv_usec < 0 ||
-		    (unsigned long)tv.tv_usec >= US)
+		if (tv.tv_sec < 0 || tv.tv_usec < 0 || (unsigned long)tv.tv_usec >= US)
 			return EINVAL;
 		if (tv.tv_sec >= TMRDIFF_MAX / sys_hz())
 			return EDOM;
 
-		ticks = tv.tv_sec * sys_hz() +
-		    (tv.tv_usec * sys_hz() + US - 1) / US;
+		ticks = tv.tv_sec * sys_hz() + (tv.tv_usec * sys_hz() + US - 1) / US;
 
 		if (name == SO_SNDTIMEO)
 			sock->sock_stimeo = ticks;
@@ -1617,7 +1708,8 @@ sockevent_getsockopt(sockid_t id, int level, int name,
 	clock_t ticks;
 	int val;
 
-	if ((sock = sockhash_get(id)) == NULL)
+	sock = sockhash_get(id);
+	if (sock == NULL)
 		return EINVAL;
 
 	if (level != SOL_SOCKET) {
@@ -1690,17 +1782,18 @@ sockevent_getsockname(sockid_t id, struct sockaddr * __restrict addr,
 	socklen_t * __restrict addr_len)
 {
 	struct sock *sock;
-	const struct sock_ops *ops;
+
+	if (addr == NULL || addr_len == NULL)
+		return EINVAL;
 
 	sock = sockhash_get(id);
 	if (sock == NULL)
 		return EINVAL;
 
-	ops = sock->sock_ops;
-	if (ops == NULL || ops->sop_getsockname == NULL)
+	if (sock->sock_ops == NULL || sock->sock_ops->sop_getsockname == NULL)
 		return EOPNOTSUPP;
 
-	return ops->sop_getsockname(sock, addr, addr_len);
+	return sock->sock_ops->sop_getsockname(sock, addr, addr_len);
 }
 
 /*
@@ -1719,7 +1812,7 @@ sockevent_getpeername(sockid_t id, struct sockaddr * __restrict addr,
 	if (sock == NULL)
 		return EINVAL;
 
-	if ((sock->sock_opt & SO_ACCEPTCONN) != 0)
+	if (sock->sock_opt & SO_ACCEPTCONN)
 		return ENOTCONN;
 
 	if (sock->sock_ops == NULL || sock->sock_ops->sop_getpeername == NULL)
@@ -1736,35 +1829,42 @@ sockevent_getpeername(sockid_t id, struct sockaddr * __restrict addr,
  * The function may in fact be called from sop_shutdown() before completion to
  * mark the socket as shut down as reflected by sockevent_is_shutdown().
  */
-void sockevent_set_shutdown(struct sock *sock, unsigned int flags)
+void
+sockevent_set_shutdown(struct sock * sock, unsigned int flags)
 {
-    unsigned int mask;
-    unsigned int new_flags;
+	unsigned int mask;
+	unsigned int new_flags;
 
-    assert(sock->sock_ops != NULL);
-    assert(!(flags & ~(SFL_SHUT_RD | SFL_SHUT_WR)));
+	if (sock == NULL || sock->sock_ops == NULL) {
+		return;
+	}
 
-    new_flags = flags & ~sock->sock_flags;
+	if (flags & ~(SFL_SHUT_RD | SFL_SHUT_WR)) {
+		return;
+	}
 
-    if (new_flags == 0) {
-        return;
-    }
+	new_flags = flags & ~(unsigned int)sock->sock_flags;
 
-    sock->sock_flags |= new_flags;
+	if (new_flags == 0) {
+		return;
+	}
 
-    mask = 0;
-    if (new_flags & SFL_SHUT_RD) {
-        mask |= SEV_RECV;
-    }
-    if (new_flags & SFL_SHUT_WR) {
-        mask |= SEV_SEND;
-    }
-    if (sock->sock_opt & SO_ACCEPTCONN) {
-        mask |= SEV_ACCEPT;
-    }
+	sock->sock_flags |= new_flags;
 
-    assert(mask != 0);
-    sockevent_raise(sock, mask);
+	mask = 0;
+	if (new_flags & SFL_SHUT_RD) {
+		mask |= SEV_RECV;
+	}
+	if (new_flags & SFL_SHUT_WR) {
+		mask |= SEV_SEND;
+	}
+	if (sock->sock_opt & SO_ACCEPTCONN) {
+		mask |= SEV_ACCEPT;
+	}
+
+	if (mask != 0) {
+		sockevent_raise(sock, mask);
+	}
 }
 
 /*
@@ -1782,21 +1882,12 @@ sockevent_shutdown(sockid_t id, int how)
 		return EINVAL;
 
 	flags = 0;
-	switch (how) {
-	case SHUT_RD:
-		flags = SFL_SHUT_RD;
-		break;
-	case SHUT_WR:
-		flags = SFL_SHUT_WR;
-		break;
-	case SHUT_RDWR:
-		flags = SFL_SHUT_RD | SFL_SHUT_WR;
-		break;
-	default:
-		return EINVAL;
-	}
+	if (how == SHUT_RD || how == SHUT_RDWR)
+		flags |= SFL_SHUT_RD;
+	if (how == SHUT_WR || how == SHUT_RDWR)
+		flags |= SFL_SHUT_WR;
 
-	if (sock->sock_ops->sop_shutdown != NULL)
+	if (sock->sock_ops != NULL && sock->sock_ops->sop_shutdown != NULL)
 		r = sock->sock_ops->sop_shutdown(sock, flags);
 	else
 		r = OK;
@@ -1823,7 +1914,7 @@ sockevent_close(sockid_t id, const struct sockdriver_call * call)
 	assert(sock->sock_proc == NULL);
 	sock->sock_select.ss_endpt = NONE;
 
-	force = ((sock->sock_opt & SO_LINGER) != 0 && sock->sock_linger == 0);
+	force = ((sock->sock_opt & SO_LINGER) && sock->sock_linger == 0);
 
 	if (sock->sock_ops->sop_close != NULL)
 		r = sock->sock_ops->sop_close(sock, force);
@@ -1832,18 +1923,24 @@ sockevent_close(sockid_t id, const struct sockdriver_call * call)
 
 	assert(r == OK || r == SUSPEND);
 
-	if (r != SUSPEND) {
-		if (r == OK)
-			sockevent_free(sock);
-		return r;
+	if (r == SUSPEND) {
+		r = handle_close_suspension(sock, call, force);
+	} else if (r == OK) {
+		sockevent_free(sock);
 	}
 
+	return r;
+}
+
+static int
+handle_close_suspension(struct sock *sock, const struct sockdriver_call *call, int force)
+{
 	sock->sock_flags |= SFL_CLOSING;
 
 	if (force)
 		return OK;
 
-	if ((sock->sock_opt & SO_LINGER) != 0) {
+	if (sock->sock_opt & SO_LINGER) {
 		sock->sock_linger = socktimer_add(sock, sock->sock_linger);
 	} else {
 		call = NULL;
@@ -1865,10 +1962,6 @@ sockevent_cancel_send(struct sock * sock, struct sockevent_proc * spr, int err)
 {
 	int result;
 
-	if (spr == NULL || sock == NULL) {
-		return;
-	}
-
 	if (spr->spr_dataoff > 0 || spr->spr_ctloff > 0) {
 		result = (int)spr->spr_dataoff;
 	} else {
@@ -1876,7 +1969,6 @@ sockevent_cancel_send(struct sock * sock, struct sockevent_proc * spr, int err)
 	}
 
 	sockdriver_reply_generic(&spr->spr_call, result);
-
 	sockevent_raise(sock, SEV_SEND);
 }
 
@@ -1913,20 +2005,17 @@ sockevent_cancel(sockid_t id, const struct sockdriver_call * call)
 	struct sockevent_proc *spr;
 	struct sock *sock;
 
-	sock = sockhash_get(id);
-	if (sock == NULL) {
+	if ((sock = sockhash_get(id)) == NULL)
 		return;
-	}
 
-	spr = sockevent_unsuspend(sock, call);
-	if (spr == NULL) {
+	if ((spr = sockevent_unsuspend(sock, call)) == NULL)
 		return;
-	}
 
 	switch (spr->spr_event) {
 	case SEV_BIND:
 	case SEV_CONNECT:
-		assert(spr->spr_call.sc_endpt != NONE);
+		if (spr->spr_call.sc_endpt == NONE)
+			break;
 		sockdriver_reply_generic(&spr->spr_call, EINTR);
 		break;
 
@@ -1951,7 +2040,8 @@ sockevent_cancel(sockid_t id, const struct sockdriver_call * call)
 		    spr->spr_event);
 	}
 
-	sockevent_proc_free(spr);
+	if (spr->spr_event != SEV_CLOSE)
+		sockevent_proc_free(spr);
 }
 
 /*
@@ -1962,7 +2052,7 @@ sockevent_select(sockid_t id, unsigned int ops,
 	const struct sockdriver_select * sel)
 {
 	struct sock *sock;
-	unsigned int result, notify, pending_ops;
+	unsigned int r, notify;
 
 	sock = sockhash_get(id);
 	if (sock == NULL)
@@ -1971,28 +2061,29 @@ sockevent_select(sockid_t id, unsigned int ops,
 	notify = (ops & SDEV_NOTIFY);
 	ops &= (SDEV_OP_RD | SDEV_OP_WR | SDEV_OP_ERR);
 
-	result = sockevent_test_select(sock, ops);
+	r = sockevent_test_select(sock, ops);
 
-	assert(!(sock->sock_selops & result));
+	assert(!(sock->sock_selops & r));
 
-	pending_ops = ops & ~result;
+	ops &= ~r;
 
-	if (notify && pending_ops != 0) {
+	if (notify && ops != 0) {
 		if (sock->sock_select.ss_endpt != NONE) {
 			if (sock->sock_select.ss_endpt != sel->ss_endpt) {
 				printf("libsockevent: no support for multiple "
 				    "select callers yet\n");
 				return EIO;
 			}
-			sock->sock_selops |= pending_ops;
+			sock->sock_selops |= ops;
 		} else {
-			assert(sel->ss_endpt != NONE);
+			if (sel->ss_endpt == NONE)
+				return EINVAL;
 			sock->sock_select = *sel;
-			sock->sock_selops = pending_ops;
+			sock->sock_selops = ops;
 		}
 	}
 
-	return result;
+	return r;
 }
 
 /*
@@ -2000,9 +2091,10 @@ sockevent_select(sockid_t id, unsigned int ops,
  * clock notification messages to libsockevent must call expire_timers(3)
  * themselves instead.
  */
-static void sockevent_alarm(clock_t now)
+static void
+sockevent_alarm(clock_t now)
 {
-    expire_timers(now);
+	expire_timers(now);
 }
 
 static const struct sockdriver sockevent_tab = {
@@ -2029,41 +2121,39 @@ static const struct sockdriver sockevent_tab = {
 /*
  * Initialize the socket event library.
  */
-void sockevent_init(sockevent_socket_cb_t socket_cb)
+void
+sockevent_init(sockevent_socket_cb_t socket_cb)
 {
-    if (socket_cb == NULL) {
-        return;
-    }
-    
-    sockhash_init();
-    socktimer_init();
-    sockevent_proc_init();
-    SIMPLEQ_INIT(&sockevent_pending);
-    sockevent_socket_cb = socket_cb;
-    sockdriver_announce();
-    sockevent_working = FALSE;
+	if (socket_cb == NULL) {
+		return;
+	}
+
+	sockhash_init();
+	socktimer_init();
+	sockevent_proc_init();
+	SIMPLEQ_INIT(&sockevent_pending);
+	
+	sockevent_socket_cb = socket_cb;
+	sockdriver_announce();
+	sockevent_working = FALSE;
 }
 
 /*
  * Process a socket driver request message.
  */
-void sockevent_process(const message *m_ptr, int ipc_status)
+void
+sockevent_process(const message * m_ptr, int ipc_status)
 {
-    if (m_ptr == NULL) {
-        return;
-    }
-
-    if (sockevent_working) {
-        return;
-    }
-
-    sockevent_working = TRUE;
-
-    sockdriver_process(&sockevent_tab, m_ptr, ipc_status);
-
-    if (sockevent_has_events()) {
-        sockevent_pump();
-    }
-
-    sockevent_working = FALSE;
+	if (sockevent_working) {
+		return;
+	}
+	
+	sockevent_working = TRUE;
+	sockdriver_process(&sockevent_tab, m_ptr, ipc_status);
+	
+	if (sockevent_has_events()) {
+		sockevent_pump();
+	}
+	
+	sockevent_working = FALSE;
 }
